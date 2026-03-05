@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+data/
+*.ipynb
+model/best_model2.pth
+model/best_model3.pth

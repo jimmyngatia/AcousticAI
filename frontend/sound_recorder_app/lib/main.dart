@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'results_page.dart';
 
 void main() {
@@ -148,6 +150,7 @@ class _RecorderScreenState extends State<RecorderScreen> {
   AudioRecorder? _recorder;
   _RecState _state = _RecState.idle;
   int _seconds = 0;
+  String? _audioPath;
   Timer? _clockTimer;
   Timer? _waveTimer;
   final List<double> _waves = List.generate(20, (_) => 5.0);
@@ -222,7 +225,7 @@ class _RecorderScreenState extends State<RecorderScreen> {
     }
 
     const config = RecordConfig(
-      encoder: AudioEncoder.opus,
+      encoder: AudioEncoder.wav,
       sampleRate: 16000,
       numChannels: 1,
     );
@@ -232,7 +235,7 @@ class _RecorderScreenState extends State<RecorderScreen> {
       path = ''; // ignored on web — record package returns a blob URL
     } else {
       final dir = await getTemporaryDirectory();
-      path = '${dir.path}/lung_${DateTime.now().millisecondsSinceEpoch}.ogg';
+      path = '${dir.path}/lung_${DateTime.now().millisecondsSinceEpoch}.wav';
     }
 
     try {
@@ -289,6 +292,7 @@ class _RecorderScreenState extends State<RecorderScreen> {
         try {
           final result = await recorderRef?.stop();
           debugPrint("Recording saved: $result");
+          if (mounted) setState(() => _audioPath = result);
         } catch (e) {
           debugPrint("stop() error (non-fatal): $e");
         }
@@ -305,6 +309,11 @@ class _RecorderScreenState extends State<RecorderScreen> {
   // ── navigation ────────────────────────────────────────────────────────
 
   void _navigateToResults() {
+    if (_audioPath == null) {
+      _showError("No audio file found. Please record again.");
+      return;
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -315,7 +324,7 @@ class _RecorderScreenState extends State<RecorderScreen> {
             CircularProgressIndicator(color: Color(0xFFEF4444)),
             SizedBox(height: 20),
             Text(
-              "Analysing audio…",
+              "Analysing audio via AI...",
               style: TextStyle(color: Colors.white70, fontSize: 14),
             ),
           ],
@@ -323,16 +332,44 @@ class _RecorderScreenState extends State<RecorderScreen> {
       ),
     );
 
-    Future.delayed(const Duration(seconds: 2), () {
+    _uploadAudioAndNavigate();
+  }
+
+  Future<void> _uploadAudioAndNavigate() async {
+    const String apiUrl = "https://acoustic-backend-410789680410.us-central1.run.app/predict";
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse(apiUrl));
+      request.files.add(await http.MultipartFile.fromPath('file', _audioPath!));
+      
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+      
       if (!mounted) return;
       Navigator.pop(context); // close dialog
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const MobileWrapper(child: ResultsPage()),
-        ),
-      );
-    });
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => MobileWrapper(
+              child: ResultsPage(
+                prediction: data['prediction'],
+                confidenceScore: data['confidence_percent'].toDouble(),
+                top3Predictions: data['top3_predictions'] as List<dynamic>,
+                spectrogramBase64: data['spectrogram_base64'],
+              ),
+            ),
+          ),
+        );
+      } else {
+        _showError("Server error: ${response.statusCode}");
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // close dialog
+      _showError("Failed to connect to backend: $e");
+    }
   }
 
   void _showError(String msg) {
@@ -507,6 +544,32 @@ class _RecorderScreenState extends State<RecorderScreen> {
                           fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     onPressed: _navigateToResults,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.grey,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                    ),
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    label: const Text(
+                      "Discard & Re-record",
+                      style: TextStyle(fontSize: 15),
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _state = _RecState.idle;
+                        _seconds = 0;
+                        _audioPath = null;
+                        _waves.fillRange(0, _waves.length, 5.0);
+                      });
+                    },
                   ),
                 ),
               ],

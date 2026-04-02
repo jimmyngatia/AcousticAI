@@ -1,8 +1,22 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'dart:convert';
 
 class ResultsPage extends StatelessWidget {
-  const ResultsPage({super.key});
+  final String prediction;
+  final double confidenceScore;
+  final List<dynamic> top3Predictions;
+  final String spectrogramBase64;
+  final String geminiDiagnosis;
+
+  const ResultsPage({
+    super.key,
+    required this.prediction,
+    required this.confidenceScore,
+    required this.top3Predictions,
+    required this.spectrogramBase64,
+    required this.geminiDiagnosis,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -51,13 +65,13 @@ class ResultsPage extends StatelessWidget {
             const SizedBox(height: 24),
 
             // ── Score card ──
-            _ScoreCard(),
+            _ScoreCard(prediction: prediction, score: confidenceScore),
             const SizedBox(height: 28),
 
             // ── Section: Graphical Analysis ──
             _SectionTitle("Graphical Analysis"),
             const SizedBox(height: 12),
-            _SpectrogramCard(),
+            _SpectrogramCard(spectrogramBase64: spectrogramBase64),
             const SizedBox(height: 28),
 
             // ── Section: Observations ──
@@ -67,9 +81,9 @@ class ResultsPage extends StatelessWidget {
             const SizedBox(height: 28),
 
             // ── Section: Conclusions ──
-            _SectionTitle("Conclusions"),
+            _SectionTitle("Gemini AI Diagnosis"),
             const SizedBox(height: 12),
-            _ConclusionsCard(),
+            _ConclusionsCard(geminiDiagnosis: geminiDiagnosis),
             const SizedBox(height: 28),
 
             // ── Disclaimer ──
@@ -108,6 +122,11 @@ class ResultsPage extends StatelessWidget {
 // ─────────────────────────── SCORE CARD ───────────────────────────────
 
 class _ScoreCard extends StatelessWidget {
+  final String prediction;
+  final double score;
+
+  const _ScoreCard({required this.prediction, required this.score});
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -136,11 +155,11 @@ class _ScoreCard extends StatelessWidget {
               border: Border.all(color: Colors.greenAccent, width: 3),
               color: Colors.greenAccent.withOpacity(0.08),
             ),
-            child: const Column(
+            child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  "88",
+                  "${score.round()}",
                   style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
@@ -155,20 +174,20 @@ class _ScoreCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 20),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Healthy Lung Function",
-                  style: TextStyle(
+                  prediction,
+                  style: const TextStyle(
                     color: Colors.greenAccent,
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
                   ),
                 ),
-                SizedBox(height: 6),
-                Text(
+                const SizedBox(height: 6),
+                const Text(
                   "Your respiratory acoustics are within normal parameters. No significant anomalies detected.",
                   style: TextStyle(
                     color: Colors.grey,
@@ -188,6 +207,9 @@ class _ScoreCard extends StatelessWidget {
 // ─────────────────────────── SPECTROGRAM ──────────────────────────────
 
 class _SpectrogramCard extends StatelessWidget {
+  final String spectrogramBase64;
+  const _SpectrogramCard({required this.spectrogramBase64});
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -207,7 +229,12 @@ class _SpectrogramCard extends StatelessWidget {
             child: SizedBox(
               height: 180,
               width: double.infinity,
-              child: CustomPaint(painter: _SpectrogramPainter()),
+              child: spectrogramBase64.isNotEmpty
+                  ? Image.memory(
+                      base64Decode(spectrogramBase64),
+                      fit: BoxFit.cover,
+                    )
+                  : CustomPaint(painter: _SpectrogramPainter()),
             ),
           ),
 
@@ -518,6 +545,9 @@ class _ObservationTile extends StatelessWidget {
 // ─────────────────────────── CONCLUSIONS ──────────────────────────────
 
 class _ConclusionsCard extends StatelessWidget {
+  final String geminiDiagnosis;
+  const _ConclusionsCard({required this.geminiDiagnosis});
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -537,7 +567,7 @@ class _ConclusionsCard extends StatelessWidget {
                   color: Colors.blueAccent, size: 22),
               const SizedBox(width: 10),
               const Text(
-                "Clinical Summary",
+                "Gemini Insights",
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
@@ -548,25 +578,13 @@ class _ConclusionsCard extends StatelessWidget {
           ),
           const Divider(color: Colors.white12, height: 24),
           const Text(
-            "Based on the acoustic analysis of the recorded breath sounds, the following conclusions were drawn:",
+            "Based on the acoustic analysis of the recorded breath sounds, the supplementary Gemini model analyzed our top probabilities and produced this interpretation:",
             style: TextStyle(color: Colors.grey, fontSize: 13, height: 1.6),
           ),
           const SizedBox(height: 14),
           _ConclusionPoint(
-            "No pathological breath sounds identified.",
-            "The absence of wheezing, crackles, stridor, or pleural friction rub suggests clear, unobstructed airways.",
-          ),
-          _ConclusionPoint(
-            "Lung function score: 88/100.",
-            "Score calculated from acoustic entropy, frequency distribution, and rhythm regularity.",
-          ),
-          _ConclusionPoint(
-            "Low risk for acute respiratory conditions.",
-            "Acoustic profile is inconsistent with pneumonia, COPD exacerbation, or bronchospasm at this time.",
-          ),
-          _ConclusionPoint(
-            "Recommended follow-up.",
-            "Repeat analysis in 30 days or immediately if symptoms such as coughing, wheezing, or shortness of breath develop.",
+            "AI Note: ",
+            geminiDiagnosis,
           ),
         ],
       ),

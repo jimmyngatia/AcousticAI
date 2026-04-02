@@ -38,14 +38,15 @@ dependencies:
   firebase_auth: ^6.2.0
   cloud_firestore: ^6.1.3
   file_picker: ^10.3.10
+  google_generative_ai: ^0.4.6
+  record: ^6.1.1
+  path_provider: ^2.1.2
+  http: ^1.2.0
+  permission_handler: ^11.3.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  record: ^6.1.1          # To record the audio
-  path_provider: ^2.1.2   # To find a place to save the file on your Ubuntu/Android
-  fl_chart: ^0.66.0       # To show the "AI" graphical image (the random graph)
-  permission_handler: ^11.3.0 # To ask the user for Microphone permission
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

@@ -3,8 +3,10 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:record/record.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 
 // import 'package:firebase_core/firebase_core.dart';
 // import 'firebase_options.dart';
@@ -324,6 +326,7 @@ class _RecorderScreenState extends State<RecorderScreen> {
 
   // Upload state
   String? _uploadedFileName;
+  String? _audioPath;
   bool _uploadReady = false;
 
   int _seconds = 0;
@@ -397,7 +400,7 @@ class _RecorderScreenState extends State<RecorderScreen> {
     }
 
     const config = RecordConfig(
-      encoder: AudioEncoder.opus,
+      encoder: AudioEncoder.wav,
       sampleRate: 16000,
       numChannels: 1,
     );
@@ -407,11 +410,12 @@ class _RecorderScreenState extends State<RecorderScreen> {
       path = '';
     } else {
       final dir = await getTemporaryDirectory();
-      path = '${dir.path}/lung_${DateTime.now().millisecondsSinceEpoch}.ogg';
+      path = '${dir.path}/lung_${DateTime.now().millisecondsSinceEpoch}.wav';
     }
 
     try {
       await _recorder!.start(config, path: path);
+      _audioPath = path;
     } catch (e) {
       debugPrint("start() error: $e");
       if (mounted) setState(() => _state = _RecState.idle);
@@ -448,6 +452,10 @@ class _RecorderScreenState extends State<RecorderScreen> {
         try {
           final result = await recorderRef?.stop();
           debugPrint("Recording saved: $result");
+          // On web, stop() returns the blob URL — use that as the path
+          if (result != null && result.isNotEmpty) {
+            if (mounted) setState(() => _audioPath = result);
+          }
         } catch (e) {
           debugPrint("stop() error (non-fatal): $e");
         }
@@ -476,6 +484,7 @@ class _RecorderScreenState extends State<RecorderScreen> {
       if (mounted) {
         setState(() {
           _uploadedFileName = file.name;
+          _audioPath = file.path;
           _uploadReady = true;
         });
       }
@@ -487,6 +496,11 @@ class _RecorderScreenState extends State<RecorderScreen> {
   // ── navigation ────────────────────────────────────────────────────────
 
   void _navigateToResults() {
+    if (_audioPath == null) {
+      _showError("No audio file found. Please select a file or record.");
+      return;
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -496,23 +510,67 @@ class _RecorderScreenState extends State<RecorderScreen> {
           children: [
             CircularProgressIndicator(color: Color(0xFFEF4444)),
             SizedBox(height: 20),
-            Text("Analysing audio…",
+            Text("Analysing audio via AI...",
                 style: TextStyle(color: Colors.white70, fontSize: 14)),
           ],
         ),
       ),
     );
 
-    Future.delayed(const Duration(seconds: 2), () {
+    _uploadAudioAndNavigate();
+  }
+
+  Future<void> _uploadAudioAndNavigate() async {
+    const String apiUrl = "https://acoustic-backend-410789680410.us-central1.run.app/predict";
+    var request = http.MultipartRequest('POST', Uri.parse(apiUrl));
+    
+    try {
+      request.files.add(await http.MultipartFile.fromPath('file', _audioPath!));
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+      
       if (!mounted) return;
-      Navigator.pop(context);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const MobileWrapper(child: ResultsPage()),
-        ),
-      );
-    });
+      Navigator.pop(context); // close dialog
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        String geminiDiag = "Diagnosis unavailable.";
+        try {
+          final model = GenerativeModel(
+            model: 'gemini-1.5-flash',
+            apiKey: 'AIzaSyBfPEUcwPv9lfBc9XtZaxSLtKTDojv1qiU',
+          );
+          final prompt = 'A patient has respiratory sounds classified as ${data['prediction']} with ${data['confidence_percent']}% confidence. Our top 3 predictions are ${data['top3_predictions']}. Provide a brief clinical diagnosis and a recommendation based on these findings. Keep it professional and concise.';
+          final content = [Content.text(prompt)];
+          final geminiResponse = await model.generateContent(content);
+          geminiDiag = geminiResponse.text ?? "Diagnosis unavailable.";
+        } catch (e) {
+          debugPrint("Gemini Error: $e");
+        }
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => MobileWrapper(
+              child: ResultsPage(
+                prediction: data['prediction'],
+                confidenceScore: data['confidence_percent'].toDouble(),
+                top3Predictions: data['top3_predictions'] as List<dynamic>,
+                spectrogramBase64: data['spectrogram_base64'],
+                geminiDiagnosis: geminiDiag,
+              ),
+            ),
+          ),
+        );
+      } else {
+        _showError("Server error: ${response.statusCode}");
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // close dialog
+      _showError("Failed to connect to backend: $e");
+    }
   }
 
   void _showError(String msg) {
@@ -826,7 +884,7 @@ class _RecorderScreenState extends State<RecorderScreen> {
               ],
 
               const SizedBox(height: 28),
-              if (kIsWeb && _inputMode == _InputMode.record && !_isRecording)
+              if (kIsWeb && !_isRecording)
                 const Text(
                   "Browser: records in Opus format",
                   style: TextStyle(color: Colors.grey, fontSize: 12),

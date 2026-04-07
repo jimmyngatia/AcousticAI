@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:record/record.dart';
@@ -7,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // import 'package:firebase_core/firebase_core.dart';
 // import 'firebase_options.dart';
@@ -16,6 +18,7 @@ import 'auth_pages.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: ".env");
   // await Firebase.initializeApp(
     // options: DefaultFirebaseOptions.currentPlatform,
   // );
@@ -539,7 +542,7 @@ class _RecorderScreenState extends State<RecorderScreen> {
         try {
           final model = GenerativeModel(
             model: 'gemini-1.5-flash',
-            apiKey: 'AIzaSyBfPEUcwPv9lfBc9XtZaxSLtKTDojv1qiU',
+            apiKey: dotenv.env['GEMINI_API_KEY'] ?? '',
           );
           final prompt = 'A patient has respiratory sounds classified as ${data['prediction']} with ${data['confidence_percent']}% confidence. Our top 3 predictions are ${data['top3_predictions']}. Provide a brief clinical diagnosis and a recommendation based on these findings. Keep it professional and concise.';
           final content = [Content.text(prompt)];
